@@ -1,0 +1,51 @@
+name: Instagram APK runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: "URL direta do APK original do Instagram 458.0.0.0.57"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  decode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Download original APK
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-delay 2 "${{ inputs.apk_url }}" -o instagram-original.apk
+          test -s instagram-original.apk
+          file instagram-original.apk
+          sha256sum instagram-original.apk
+
+      - name: Download Apktool
+        run: |
+          curl -fL --retry 3 \
+            "https://github.com/felpz566/Arquivos/releases/download/Algo/apktool_3.0.3.jar" \
+            -o apktool.jar
+          test -s apktool.jar
+
+      - name: Decode APK
+        run: |
+          java -version
+          java -jar apktool.jar d -f -r instagram-original.apk -o instagram-decoded
+          find instagram-decoded -maxdepth 2 -type d | head -40
+          find instagram-decoded -type f -name '*SearchUrlHandlerActivity.smali' -o -name '0H6Y.smali'
+
+      - name: Upload decoded project for patch analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: instagram-458-decoded
+          path: |
+            instagram-decoded/smali*/X/0H6Y.smali
+            instagram-decoded/smali*/com/instagram/search/urlhandlers/search/SearchUrlHandlerActivity.smali
+            instagram-decoded/smali*/com/instagram/search/**
+            instagram-decoded/AndroidManifest.xml
+          if-no-files-found: warn
+          retention-days: 3
