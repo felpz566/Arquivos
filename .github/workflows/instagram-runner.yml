@@ -1,44 +1,55 @@
 name: Instagram APK runner
 
 on:
+  push:
+    paths:
+      - ".github/workflows/instagram-runner.yml"
   workflow_dispatch:
     inputs:
       apk_url:
-        description: "URL direta do APK original do Instagram 458.0.0.0.57"
-        required: true
+        description: "URL direta do APK original do Instagram 458.0.0.0.57 (opcional para testar o runner)"
+        required: false
         type: string
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
-  decode:
+  prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Download original APK
+      - name: Prepare Java and download tools
+        shell: bash
         run: |
           set -euo pipefail
-          curl -fL --retry 3 --retry-delay 2 "${{ inputs.apk_url }}" -o instagram-original.apk
+          java -version
+          mkdir -p tools
+          curl -fL --retry 3 "https://github.com/felpz566/Arquivos/releases/download/Algo/apktool_3.0.3.jar" -o tools/apktool.jar
+          curl -fL --retry 3 "https://github.com/felpz566/Arquivos/releases/download/Algo/baksmali-3.0.10-fat-release.jar" -o tools/baksmali.jar
+          curl -fL --retry 3 "https://github.com/felpz566/Arquivos/releases/download/Algo/smali-3.0.10-fat-release.jar" -o tools/smali.jar
+          test -s tools/apktool.jar
+          test -s tools/baksmali.jar
+          test -s tools/smali.jar
+          sha256sum tools/*.jar
+
+      - name: Download and decode original APK (when URL is provided)
+        if: ${{ inputs.apk_url != '' }}
+        shell: bash
+        env:
+          APK_URL: ${{ inputs.apk_url }}
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-delay 2 "$APK_URL" -o instagram-original.apk
           test -s instagram-original.apk
           file instagram-original.apk
           sha256sum instagram-original.apk
+          java -jar tools/apktool.jar d -f -r instagram-original.apk -o instagram-decoded
+          find instagram-decoded -type f \( -name '*SearchUrlHandlerActivity.smali' -o -name '0H6Y.smali' \) -print
 
-      - name: Download Apktool
-        run: |
-          curl -fL --retry 3 \
-            "https://github.com/felpz566/Arquivos/releases/download/Algo/apktool_3.0.3.jar" \
-            -o apktool.jar
-          test -s apktool.jar
-
-      - name: Decode APK
-        run: |
-          java -version
-          java -jar apktool.jar d -f -r instagram-original.apk -o instagram-decoded
-          find instagram-decoded -maxdepth 2 -type d | head -40
-          find instagram-decoded -type f -name '*SearchUrlHandlerActivity.smali' -o -name '0H6Y.smali'
-
-      - name: Upload decoded project for patch analysis
+      - name: Upload decoded search files
+        if: ${{ inputs.apk_url != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: instagram-458-decoded
@@ -49,3 +60,7 @@ jobs:
             instagram-decoded/AndroidManifest.xml
           if-no-files-found: warn
           retention-days: 3
+
+      - name: Runner test completed
+        if: ${{ inputs.apk_url == '' }}
+        run: echo "Runner OK. Tools downloaded. Dispatch again with apk_url to decode the APK."
